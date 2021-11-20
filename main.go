@@ -15,6 +15,8 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
+const repo = "https://github.com/jdtw/commit"
+
 var port = flag.Int("port", 8080, "listening port")
 
 func main() {
@@ -48,6 +50,10 @@ func newHandler() http.Handler {
 	srv.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
 			http.NotFound(w, r)
+			return
+		}
+		if r.Method == "GET" {
+			http.Redirect(w, r, repo, http.StatusFound)
 			return
 		}
 		if r.Method != "POST" {
