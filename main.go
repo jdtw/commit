@@ -25,8 +25,8 @@ func main() {
 }
 
 type commitment struct {
-	Commit string `yaml:"commit"`
-	Digest string `yaml:"digest"`
+	Message string `yaml:"message"`
+	Commit  string `yaml:"commit"`
 }
 
 func commit(msg string) (*commitment, error) {
@@ -37,8 +37,8 @@ func commit(msg string) (*commitment, error) {
 	msg = fmt.Sprintf("%s %s", msg, hex.EncodeToString(entropy))
 	digest := sha256.Sum256([]byte(msg))
 	return &commitment{
-		Commit: msg,
-		Digest: hex.EncodeToString(digest[:]),
+		Message: msg,
+		Commit:  hex.EncodeToString(digest[:]),
 	}, nil
 }
 
