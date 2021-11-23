@@ -74,6 +74,10 @@ func newHandler() http.Handler {
 			return
 		}
 		response, err := commit(string(body))
+		if err != nil {
+			internalError(w, "failed to commit message: %v", err)
+			return
+		}
 		w.Header().Set("Content-Type", "text/yaml")
 		yaml.NewEncoder(w).Encode(response)
 	})
