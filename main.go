@@ -61,7 +61,7 @@ func newHandler() http.Handler {
 			return
 		}
 		if !limiter.Allow() {
-			http.Error(w, "Are you like, trying to mine bitcoin or something? Or maybe somebody else is...", http.StatusTooManyRequests)
+			http.Error(w, "Are you like, trying to mine bitcoin or something?", http.StatusTooManyRequests)
 			return
 		}
 		body, err := io.ReadAll(r.Body)
