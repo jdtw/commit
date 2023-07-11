@@ -1,10 +1,9 @@
 package main
 
 import (
-	"bytes"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"flag"
 	"fmt"
@@ -13,6 +12,7 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/time/rate"
 	"gopkg.in/yaml.v2"
@@ -31,16 +31,16 @@ func main() {
 	addr := fmt.Sprint(":", *port)
 	log.Printf("listening on %s", addr)
 
-	limiter := rate.NewLimiter(rate.Every(*ratelimit), 5)
 	srv := http.NewServeMux()
-	srv.HandleFunc("/verify", postHandler(limiter, verify()))
-	srv.HandleFunc("/", postHandler(limiter, commit()))
+	srv.HandleFunc("/verify", postHandler(verify()))
+	srv.HandleFunc("/", postHandler(commit()))
 
 	log.Fatal(http.ListenAndServe(addr, srv))
 }
 
 type commitment struct {
 	Message string `yaml:"message"`
+	Key     string `yaml:"key"`
 	Commit  string `yaml:"commit"`
 }
 
@@ -63,18 +63,22 @@ func commit() http.HandlerFunc {
 			badRequest(w, "")
 			return
 		}
-		entropy := make([]byte, 16)
-		if _, err := rand.Read(entropy); err != nil {
+		if !utf8.Valid(body) {
+			badRequest(w, "body must be valid utf8!")
+		}
+		key := make([]byte, 32)
+		if _, err := rand.Read(key); err != nil {
 			internalError(w, "failed to read entropy: %v", err)
 			return
 		}
-		encoded := base64.RawURLEncoding.EncodeToString(entropy)
-		msg := fmt.Sprintf("%s (%s)", string(body), encoded)
-		digest := sha256.Sum256([]byte(msg))
+		h := hmac.New(sha256.New, key)
+		h.Write(body)
+		digest := h.Sum(nil)
 		w.Header().Set("Content-Type", "text/yaml")
 		yaml.NewEncoder(w).Encode(&commitment{
-			Message: msg,
-			Commit:  hex.EncodeToString(digest[:]),
+			Key:     hex.EncodeToString(key),
+			Message: string(body),
+			Commit:  hex.EncodeToString(digest),
 		})
 	}
 }
@@ -95,8 +99,15 @@ func verify() http.HandlerFunc {
 			badRequest(w, "bad commitment: %v", err)
 			return
 		}
-		want := sha256.Sum256([]byte(c.Message))
-		verified := bytes.Equal(got, want[:])
+		key, err := hex.DecodeString(c.Key)
+		if err != nil {
+			badRequest(w, "bad key: %v", err)
+			return
+		}
+		h := hmac.New(sha256.New, key)
+		h.Write([]byte(c.Message))
+		want := h.Sum(nil)
+		verified := hmac.Equal(got, want)
 		w.Header().Set("Content-Type", "text/plain")
 		fmt.Fprint(w, strconv.FormatBool(verified))
 	}
@@ -105,7 +116,8 @@ func verify() http.HandlerFunc {
 // postHandler is middleware that redirects GET requests to the github
 // repo, returns method not allowed for anything other than POST, and
 // does rate limiting.
-func postHandler(l *rate.Limiter, h http.HandlerFunc) http.HandlerFunc {
+func postHandler(h http.HandlerFunc) http.HandlerFunc {
+	limiter := rate.NewLimiter(rate.Every(*ratelimit), 5)
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "GET" {
 			http.Redirect(w, r, repo, http.StatusFound)
@@ -115,7 +127,7 @@ func postHandler(l *rate.Limiter, h http.HandlerFunc) http.HandlerFunc {
 			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		if !l.Allow() {
+		if !limiter.Allow() {
 			http.Error(w, "Are you like, trying to mine bitcoin or something?", http.StatusTooManyRequests)
 			return
 		}
